@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="UTF-8">
+	<title>/{{ page.path }} - Ruki</title>
+</head>
+
+<body>
+	{{ content | safe }}
+	<footer>
+		updated: {{ page.updated }}
+		created: {{ page.created }}
+	</footer>
+</body>
+
+</html>

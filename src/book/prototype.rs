@@ -20,7 +20,7 @@ pub trait Book {
     fn put_revision(&self, path: &str, content: &str) -> Result<(Page, Revision)>;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct Page {
     pub path: String,
 
@@ -28,7 +28,7 @@ pub struct Page {
     pub updated: u64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct Revision {
     pub content: String,
 
