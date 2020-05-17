@@ -1,7 +1,8 @@
-mod context;
-
 use super::book;
 use super::error::*;
+
+mod context;
+pub use context::*;
 
 struct Renderer {
     templates: tera::Tera,
@@ -22,7 +23,7 @@ impl Renderer {
         }
     }
 
-    fn to_html(&self, input: &str) -> Result<String> {
+    fn md_to_html(&self, input: &str) -> Result<String> {
         let mut buf = String::new();
         pulldown_cmark::html::push_html(
             &mut buf,
@@ -31,68 +32,67 @@ impl Renderer {
         Ok(buf)
     }
 
-    fn render(&self, ctx: &context::Context) -> Result<String> {
+    fn render<C>(&self, ctx: &C) -> Result<String>
+    where
+        C: Renderable + serde::Serialize,
+    {
         Ok(self.templates.render(
-            context::template_def(ctx).unwrap(),
+            ctx.template_definition(),
             &tera::Context::from_serialize(ctx)?,
         )?)
     }
 }
 
 pub struct BatchRenderer {
-    renderer: Renderer,
-    common_context: context::Common,
-    jobs: std::sync::Arc<std::sync::Mutex<Vec<context::Context>>>,
+    renderer: std::sync::Arc<Renderer>,
+    jobs: std::sync::Arc<std::sync::Mutex<Vec<Context>>>,
 }
 
 impl BatchRenderer {
-    pub fn new<S>(title: S, menu: &book::Revision) -> Result<Self>
-    where
-        S: Into<String>,
-    {
-        let renderer = Renderer::new()?;
-        let ctx = context::Common {
-            title: title.into(),
-            menu_content: renderer.to_html(&menu.content)?,
-        };
+    pub fn new() -> Result<Self> {
         Ok(Self {
-            renderer: renderer,
-            common_context: ctx,
+            renderer: std::sync::Arc::new(Renderer::new()?),
             jobs: std::sync::Arc::new(std::sync::Mutex::new(vec![])),
         })
     }
 
-    pub fn enqueue_page(
-        &mut self,
-        page: book::Page,
-        revision: book::Revision,
-        revisions_count: u64,
-        attachments_count: u64,
-    ) {
-        let ctx = context::Context::Page(context::Page {
-            page: page,
-            content: revision.content.to_string(),
-            revisions_count: revisions_count,
-            attachments_count: attachments_count,
-            common: self.common_context.clone(),
-        });
+    pub fn enqueue(&self, ctx: Context) {
         let jobs = self.jobs.clone();
         jobs.lock().unwrap().push(ctx);
     }
 
-    pub fn process_serial(&mut self) -> Result<Vec<String>> {
+    pub fn process_parallel(&self) -> Result<Vec<String>> {
+        let (sender, receiver) = std::sync::mpsc::channel();
         let jobs = self.jobs.clone();
-        let mut jobs = jobs.lock().unwrap();
-        jobs.iter_mut().map(|x| self.process(x)).collect()
-    }
+        let count = jobs.lock().unwrap().len();
 
-    fn process(&self, ctx: &mut context::Context) -> Result<String> {
-        match ctx {
-            context::Context::Page(p) => {
-                p.content = self.renderer.to_html(&p.content)?;
-            }
-            _ => unimplemented!(),
+        for _ in 0..8 {
+            let renderer = self.renderer.clone();
+            let jobs = self.jobs.clone();
+            let sender = sender.clone();
+
+            std::thread::spawn(move || loop {
+                let mut jobs = jobs.lock().unwrap();
+                match jobs.pop() {
+                    Some(mut ctx) => sender
+                        .send(match ctx.preproc(renderer.as_ref()) {
+                            Err(e) => Err(format!("{}", e)),
+                            _ => match renderer.render(&ctx) {
+                                Err(e) => Err(format!("{}", e)),
+                                Ok(data) => Ok((ctx, data)),
+                            },
+                        })
+                        .unwrap(),
+                    None => break,
+                }
+            });
         }
-        self.renderer.render(ctx)
+
+        Ok((0..count)
+            .map(|_| receiver.recv())
+            .collect::<std::result::Result<std::result::Result<Vec<_>, _>, _>>()??
+            .into_iter()
+            .map(|x| x.1)
+            .collect())
     }
 }

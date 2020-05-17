@@ -6,16 +6,15 @@ use book::Book;
 
 fn main() {
     let book = book::FileBook::new("./db");
-
-    let mut batch =
-        renderer::BatchRenderer::new("RukiWiki", &book.get_latest_revision("menu").unwrap())
-            .unwrap();
+    let batch = renderer::BatchRenderer::new().unwrap();
+    let root_ctx =
+        renderer::RootContext::new("RukiWiki", book.get_latest_revision("menu").unwrap());
 
     for page in book.get_all_pages().unwrap() {
         let revision = book.get_latest_revision(&page.path).unwrap();
-        batch.enqueue_page(page, revision, 0, 0);
+        batch.enqueue(root_ctx.page(page, revision, 0, 0));
     }
 
-    let result = batch.process_serial().unwrap();
+    let result = batch.process_parallel().unwrap();
     println!("{:?}", result);
 }
