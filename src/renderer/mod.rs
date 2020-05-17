@@ -5,7 +5,7 @@ use super::error::*;
 mod context;
 pub use context::*;
 
-struct Renderer {
+pub struct Renderer {
     templates: tera::Tera,
     opts: pulldown_cmark::Options,
 }

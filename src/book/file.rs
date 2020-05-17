@@ -86,13 +86,16 @@ impl FileBook {
                 return Err(InternalError::new("metadata not exists"));
             }
 
-            let meta = match serde_json::from_reader::<_, Meta>(std::fs::File::open(meta_path)?) {
+            let meta = match serde_json::from_reader::<_, Meta>(std::io::BufReader::new(
+                std::fs::File::open(meta_path)?,
+            )) {
                 Err(e) => return Err(InternalError::wrap(e, "failed to decode metadata")),
                 Ok(o) => o,
             };
 
             let mut content = String::new();
-            std::fs::File::open(entry_path)?.read_to_string(&mut content)?;
+            std::io::BufReader::new(std::fs::File::open(entry_path)?)
+                .read_to_string(&mut content)?;
 
             created = std::cmp::min(meta.created, created);
             updated = std::cmp::max(meta.created, updated);

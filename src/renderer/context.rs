@@ -21,7 +21,7 @@ impl Renderable for Context {
     }
     fn template_definition(&self) -> &'static str {
         match self {
-            Self::Page(ctx) => "page.html",
+            Self::Page(_) => "page.html",
         }
     }
     fn preproc(&mut self, renderer: &super::Renderer) -> Result<()> {
