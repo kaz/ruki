@@ -1,4 +1,5 @@
 use super::book;
+use super::dist::Distributor;
 use super::error::*;
 
 mod context;
@@ -43,56 +44,66 @@ impl Renderer {
     }
 }
 
-pub struct BatchRenderer {
-    renderer: std::sync::Arc<Renderer>,
-    jobs: std::sync::Arc<std::sync::Mutex<Vec<Context>>>,
+pub struct BatchRenderer<D>
+where
+    D: Distributor,
+{
+    distributor: D,
+    renderer: Renderer,
+    jobs: std::sync::Mutex<Vec<Context>>,
 }
 
-impl BatchRenderer {
-    pub fn new() -> Result<Self> {
+impl<D> BatchRenderer<D>
+where
+    D: Distributor + Sync + Send + 'static,
+{
+    pub fn new(distributor: D) -> Result<Self> {
         Ok(Self {
-            renderer: std::sync::Arc::new(Renderer::new()?),
-            jobs: std::sync::Arc::new(std::sync::Mutex::new(vec![])),
+            distributor: distributor,
+            renderer: Renderer::new()?,
+            jobs: std::sync::Mutex::new(vec![]),
         })
     }
 
     pub fn enqueue(&self, ctx: Context) {
-        let jobs = self.jobs.clone();
-        jobs.lock().unwrap().push(ctx);
+        self.jobs.lock().unwrap().push(ctx);
     }
 
-    pub fn process_parallel(&self) -> Result<Vec<String>> {
+    pub fn process_parallel(self) -> Result<()> {
+        let batch = std::sync::Arc::new(self);
+
         let (sender, receiver) = std::sync::mpsc::channel();
-        let jobs = self.jobs.clone();
-        let count = jobs.lock().unwrap().len();
+        let count = batch.jobs.lock().unwrap().len();
 
         for _ in 0..8 {
-            let renderer = self.renderer.clone();
-            let jobs = self.jobs.clone();
+            let batch = batch.clone();
             let sender = sender.clone();
 
             std::thread::spawn(move || loop {
-                let mut jobs = jobs.lock().unwrap();
-                match jobs.pop() {
-                    Some(mut ctx) => sender
-                        .send(match ctx.preproc(renderer.as_ref()) {
-                            Err(e) => Err(format!("{}", e)),
-                            _ => match renderer.render(&ctx) {
-                                Err(e) => Err(format!("{}", e)),
-                                Ok(data) => Ok((ctx, data)),
-                            },
-                        })
-                        .unwrap(),
+                let mut jobs = batch.jobs.lock().unwrap();
+                let mut ctx = match jobs.pop() {
+                    Some(ctx) => ctx,
                     None => break,
-                }
+                };
+
+                sender
+                    .send(match ctx.preproc(&batch.renderer) {
+                        Err(e) => Err(format!("{}", e)),
+                        _ => match batch.renderer.render(&ctx) {
+                            Err(e) => Err(format!("{}", e)),
+                            Ok(content) => match batch.distributor.publish(ctx, content) {
+                                Err(e) => Err(format!("{}", e)),
+                                _ => Ok(()),
+                            },
+                        },
+                    })
+                    .unwrap();
             });
         }
 
-        Ok((0..count)
+        (0..count)
             .map(|_| receiver.recv())
-            .collect::<std::result::Result<std::result::Result<Vec<_>, _>, _>>()??
-            .into_iter()
-            .map(|x| x.1)
-            .collect())
+            .collect::<std::result::Result<std::result::Result<Vec<_>, _>, _>>()??;
+        Ok(())
     }
 }

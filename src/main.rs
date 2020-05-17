@@ -1,4 +1,5 @@
 mod book;
+mod dist;
 mod error;
 mod renderer;
 
@@ -6,7 +7,8 @@ use book::Book;
 
 fn main() {
     let book = book::FileBook::new("./db");
-    let batch = renderer::BatchRenderer::new().unwrap();
+    let dist = dist::FileDistributor::new("./public", false).unwrap();
+    let batch = renderer::BatchRenderer::new(dist).unwrap();
     let root_ctx =
         renderer::RootContext::new("RukiWiki", book.get_latest_revision("menu").unwrap());
 
