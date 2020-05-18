@@ -12,33 +12,32 @@ pub trait Renderable {
 #[serde(untagged)]
 pub enum Context {
     Page(Page),
+    RevisionList(RevisionList),
 }
 impl Renderable for Context {
     fn distribute_path(&self) -> String {
         match self {
             Self::Page(ctx) => ctx.page.path.clone(),
+            Self::RevisionList(ctx) => std::path::Path::new(&ctx.page.path)
+                .join("_revisions")
+                .to_str()
+                .unwrap()
+                .into(),
         }
     }
     fn template_definition(&self) -> &'static str {
         match self {
             Self::Page(_) => "page.html",
+            Self::RevisionList(_) => "revision_list.html",
         }
     }
     fn preproc(&mut self, renderer: &super::Renderer) -> Result<()> {
         match self {
             Self::Page(ctx) => ctx.content = renderer.md_to_html(&ctx.content)?,
+            _ => {}
         }
         Ok(())
     }
-}
-
-#[derive(Debug, serde::Serialize)]
-pub struct Page {
-    page: book::Page,
-    content: String,
-    revisions_count: u64,
-    attachments_count: u64,
-    common: RootContext,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -56,6 +55,7 @@ impl RootContext {
             menu_content: menu.content,
         }
     }
+
     pub fn page(
         &self,
         page: book::Page,
@@ -71,4 +71,28 @@ impl RootContext {
             common: self.clone(),
         })
     }
+
+    pub fn revision_list(&self, page: book::Page, revisions: Vec<book::Revision>) -> Context {
+        Context::RevisionList(RevisionList {
+            page: page,
+            revisions: revisions,
+            common: self.clone(),
+        })
+    }
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct Page {
+    page: book::Page,
+    content: String,
+    revisions_count: u64,
+    attachments_count: u64,
+    common: RootContext,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct RevisionList {
+    page: book::Page,
+    revisions: Vec<book::Revision>,
+    common: RootContext,
 }

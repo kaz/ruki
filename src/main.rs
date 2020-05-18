@@ -13,10 +13,11 @@ fn main() {
         renderer::RootContext::new("RukiWiki", book.get_latest_revision("menu").unwrap());
 
     for page in book.get_all_pages().unwrap() {
-        let revision = book.get_latest_revision(&page.path).unwrap();
-        batch.enqueue(root_ctx.page(page, revision, 0, 0));
+        let latest = book.get_latest_revision(&page.path).unwrap();
+        let revisions = book.get_all_revisions(&page.path).unwrap();
+        batch.enqueue(root_ctx.page(page.clone(), latest, 0, 0));
+        batch.enqueue(root_ctx.revision_list(page, revisions));
     }
 
-    let result = batch.process_parallel().unwrap();
-    println!("{:?}", result);
+    batch.process_parallel().unwrap();
 }
